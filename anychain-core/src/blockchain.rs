@@ -108,3 +108,75 @@ impl From<Error> for String {
         e.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn open_tmp() -> (Blockchain, TempDir) {
+        let dir = TempDir::new().unwrap();
+        let bc = Blockchain::open(dir.path().to_str().unwrap()).unwrap();
+        (bc, dir)
+    }
+
+    #[test]
+    fn opens_with_genesis_block() {
+        let (bc, _dir) = open_tmp();
+        assert_eq!(bc.height(), 1);
+    }
+
+    #[test]
+    fn add_block_increases_height() {
+        let (mut bc, _dir) = open_tmp();
+        bc.add_block("tx1").unwrap();
+        assert_eq!(bc.height(), 2);
+    }
+
+    #[test]
+    fn blocks_returns_all_in_order() {
+        let (mut bc, _dir) = open_tmp();
+        bc.add_block("a").unwrap();
+        bc.add_block("b").unwrap();
+        let blocks = bc.blocks();
+        assert_eq!(blocks.len(), 3);
+        // blocks() goes tip → genesis, so heights descend
+        assert!(blocks[0].height > blocks[1].height);
+    }
+
+    #[test]
+    fn get_block_by_hash() {
+        let (mut bc, _dir) = open_tmp();
+        let added = bc.add_block("hello").unwrap();
+        let fetched = bc.get_block(added.hash()).unwrap().unwrap();
+        assert_eq!(fetched.hash(), added.hash());
+    }
+
+    #[test]
+    fn get_block_missing_returns_none() {
+        let (bc, _dir) = open_tmp();
+        let result = bc.get_block("nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn fresh_chain_is_valid() {
+        let (bc, _dir) = open_tmp();
+        assert!(bc.is_valid());
+    }
+
+    #[test]
+    fn chain_with_blocks_is_valid() {
+        let (mut bc, _dir) = open_tmp();
+        bc.add_block("x").unwrap();
+        bc.add_block("y").unwrap();
+        assert!(bc.is_valid());
+    }
+
+    #[test]
+    fn tip_matches_last_added_block() {
+        let (mut bc, _dir) = open_tmp();
+        let block = bc.add_block("tip-test").unwrap();
+        assert_eq!(bc.tip(), block.hash());
+    }
+}
