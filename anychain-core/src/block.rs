@@ -80,3 +80,48 @@ impl Block {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn genesis_is_valid() {
+        let block = Block::genesis().unwrap();
+        assert!(block.is_valid());
+    }
+
+    #[test]
+    fn genesis_height_is_zero() {
+        let block = Block::genesis().unwrap();
+        assert_eq!(block.height, 0);
+    }
+
+    #[test]
+    fn genesis_previous_hash_is_empty() {
+        let block = Block::genesis().unwrap();
+        assert!(block.previous_hash.is_empty());
+    }
+
+    #[test]
+    fn hash_meets_difficulty() {
+        let block = Block::genesis().unwrap();
+        assert!(block.hash().starts_with(&"0".repeat(DIFFICULTY)));
+    }
+
+    #[test]
+    fn new_block_links_to_previous() {
+        let genesis = Block::genesis().unwrap();
+        let txs = vec![Transaction::new("next")];
+        let block = Block::new(txs, genesis.hash().to_string(), 1).unwrap();
+        assert_eq!(block.previous_hash, genesis.hash());
+        assert!(block.is_valid());
+    }
+
+    #[test]
+    fn tampered_block_is_invalid() {
+        let mut block = Block::genesis().unwrap();
+        block.hash = "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        assert!(!block.is_valid());
+    }
+}
