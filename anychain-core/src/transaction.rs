@@ -25,3 +25,34 @@ impl Transaction {
         Transaction { id, data, timestamp }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_sets_data() {
+        let tx = Transaction::new("hello");
+        assert_eq!(tx.data, "hello");
+    }
+
+    #[test]
+    fn id_is_64_hex_chars() {
+        let tx = Transaction::new("hello");
+        assert_eq!(tx.id.len(), 64);
+        assert!(tx.id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn different_data_produces_different_ids() {
+        let a = Transaction::new("foo");
+        let b = Transaction::new("bar");
+        assert_ne!(a.id, b.id);
+    }
+
+    #[test]
+    fn timestamp_is_non_zero() {
+        let tx = Transaction::new("x");
+        assert!(tx.timestamp > 0);
+    }
+}
