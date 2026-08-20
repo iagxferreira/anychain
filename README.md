@@ -1,6 +1,6 @@
 # anychain
 
-A proof-of-concept blockchain written in Rust, structured as a production-ready monorepo.
+A proof-of-concept blockchain written in Kotlin, structured as a Gradle multi-module project.
 
 ## Overview
 
@@ -8,20 +8,20 @@ anychain implements a simple blockchain with SHA-256 proof-of-work, persistent s
 
 ```
 anychain/
-├── anychain-core/   # Core library: Block, Blockchain, Transaction
-├── anychain-cli/    # Command-line interface binary
-└── anychain-api/    # REST API server (axum)
+├── core/   # Core library: Block, Blockchain, Transaction
+├── cli/    # Command-line interface binary
+└── api/    # REST API server (Ktor)
 ```
 
 ## Features
 
 - SHA-256 proof-of-work (configurable difficulty)
-- Persistent storage with [sled](https://github.com/spacejam/sled)
+- Persistent storage with [RocksDB](https://rocksdb.org/)
 - Chain integrity validation
 - CLI for local interaction
 - REST API for remote interaction
-- Structured error handling with `thiserror` / `anyhow`
-- Structured logging via `env_logger`
+- Structured error handling via a sealed `AnychainException` hierarchy
+- Structured logging via [Logback](https://logback.qos.ch/)
 
 ---
 
@@ -29,7 +29,7 @@ anychain/
 
 ### Prerequisites
 
-- Rust 1.75+ (`rustup update stable`)
+- JDK 21+ (the build targets `jvmToolchain(21)`; the Gradle wrapper auto-provisions one via the Foojay resolver if it can't find one locally)
 
 ### Quickstart
 
@@ -38,31 +38,31 @@ anychain/
 git clone https://github.com/your-org/anychain.git
 cd anychain
 
-# 2. Build all crates
-cargo build --release
+# 2. Build all modules
+./gradlew build
 
 # 3. Run tests
-cargo test
+./gradlew test
 
 # 4. Try the CLI
-cargo run -p anychain-cli -- add "hello world"
-cargo run -p anychain-cli -- print
+./gradlew :cli:run --args="add 'hello world'"
+./gradlew :cli:run --args="print"
 
 # 5. Or start the REST API
-cargo run -p anychain-api
+./gradlew :api:run
 # Server is now running at http://localhost:3000
 ```
 
 ### Build everything
 
 ```bash
-cargo build --release
+./gradlew build
 ```
 
 ### Run tests
 
 ```bash
-cargo test
+./gradlew test
 ```
 
 ---
@@ -70,7 +70,7 @@ cargo test
 ## CLI — `anychain`
 
 ```bash
-cargo run -p anychain-cli -- --help
+./gradlew :cli:run --args="--help"
 ```
 
 ### Commands
@@ -85,23 +85,30 @@ cargo run -p anychain-cli -- --help
 
 | Flag | Env var | Default | Description |
 |---|---|---|---|
-| `--db <PATH>` | `ANYCHAIN_DB` | `/tmp/anychain` | Path to the sled database |
+| `--db <PATH>` | `ANYCHAIN_DB` | `/tmp/anychain` | Path to the RocksDB database directory |
 
 ### Examples
 
 ```bash
 # Add blocks
-cargo run -p anychain-cli -- add "first transaction"
-cargo run -p anychain-cli -- add "second transaction"
+./gradlew :cli:run --args="add 'first transaction'"
+./gradlew :cli:run --args="add 'second transaction'"
 
 # Print the chain
-cargo run -p anychain-cli -- print
+./gradlew :cli:run --args="print"
 
 # Validate integrity
-cargo run -p anychain-cli -- validate
+./gradlew :cli:run --args="validate"
 
 # Use a custom database path
-ANYCHAIN_DB=./mychain cargo run -p anychain-cli -- add "hello"
+ANYCHAIN_DB=./mychain ./gradlew :cli:run --args="add hello"
+```
+
+A standalone launcher script (no Gradle needed after building) is produced by:
+
+```bash
+./gradlew :cli:installDist
+./cli/build/install/anychain/bin/anychain add "hello world"
 ```
 
 ---
@@ -109,7 +116,7 @@ ANYCHAIN_DB=./mychain cargo run -p anychain-cli -- add "hello"
 ## API — `anychain-api`
 
 ```bash
-cargo run -p anychain-api
+./gradlew :api:run
 ```
 
 The server starts on `http://0.0.0.0:3000` by default.
@@ -118,7 +125,7 @@ The server starts on `http://0.0.0.0:3000` by default.
 
 | Variable | Default | Description |
 |---|---|---|
-| `ANYCHAIN_DB` | `/tmp/anychain` | Path to the sled database |
+| `ANYCHAIN_DB` | `/tmp/anychain` | Path to the RocksDB database directory |
 | `PORT` | `3000` | Port to listen on |
 
 ### Endpoints
@@ -178,16 +185,16 @@ Returns `200 OK` if valid, `409 Conflict` if invalid.
 
 ## Architecture
 
-### `anychain-core`
+### `core`
 
-The library crate — no I/O, no CLI, no HTTP. Everything else depends on it.
+The library module — no I/O beyond persistence, no CLI, no HTTP. Everything else depends on it.
 
-| Module | Responsibility |
+| File | Responsibility |
 |---|---|
-| `block` | Block structure, SHA-256 PoW mining, hash validation |
-| `blockchain` | Chain management, sled persistence, iteration |
-| `transaction` | Transaction structure with content-addressed ID |
-| `error` | Typed errors via `thiserror` |
+| `Block.kt` | Block structure, SHA-256 PoW mining, hash validation |
+| `Blockchain.kt` | Chain management, RocksDB persistence, iteration |
+| `Transaction.kt` | Transaction structure with content-addressed ID |
+| `Errors.kt` | Sealed `AnychainException` hierarchy |
 
 ### Proof of Work
 
@@ -199,17 +206,21 @@ hash = SHA256(previous_hash ‖ timestamp ‖ height ‖ nonce ‖ tx_ids ‖ tx
 
 ### Storage
 
-Blocks are serialized with `bincode` and stored in a `sled` embedded key-value database keyed by their hash. A special `"LAST"` key always points to the tip of the chain.
+Blocks are serialized with [kotlinx.serialization CBOR](https://github.com/Kotlin/kotlinx.serialization) and stored in a [RocksDB](https://rocksdb.org/) embedded key-value database keyed by their hash. A special `"LAST"` key always points to the tip of the chain. The `Blockchain` caches the tip block in memory, so `height()` is O(1) instead of walking the chain.
+
+### Concurrency (API)
+
+The REST API guards the shared `Blockchain` with a `kotlinx.coroutines.sync.Mutex`, and runs block mining on `Dispatchers.Default`. A slow proof-of-work mine suspends other in-flight requests without blocking a server thread.
 
 ---
 
 ## Logging
 
-Set the `RUST_LOG` environment variable to enable logs:
+Set the `ANYCHAIN_LOG` environment variable to change the log level (default `WARN` for the CLI, `INFO` for the API):
 
 ```bash
-RUST_LOG=info cargo run -p anychain-cli -- add "hello"
-RUST_LOG=anychain_core=debug cargo run -p anychain-api
+ANYCHAIN_LOG=INFO ./gradlew :cli:run --args="add hello"
+ANYCHAIN_LOG=DEBUG ./gradlew :api:run
 ```
 
 ---
