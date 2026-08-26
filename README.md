@@ -6,6 +6,13 @@ A proof-of-concept blockchain written in Rust, structured as a production-ready 
 
 anychain implements a simple blockchain with SHA-256 proof-of-work, persistent storage via an embedded database, and two interfaces — a CLI and a REST API — all built on top of a shared core library.
 
+## Repository status
+
+- Active development line: Rust on `main`
+- Last pre-migration Rust snapshot: `rust-final`
+- Kotlin reference implementation: local branch `archive/kotlin` and tag `kotlin-reference`
+- Roadmap for the Rust rebuild: [docs/ROADMAP.md](docs/ROADMAP.md)
+
 ```
 anychain/
 ├── anychain-core/   # Core library: Block, Blockchain, Transaction
